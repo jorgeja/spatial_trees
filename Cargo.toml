@@ -1,0 +1,25 @@
+[package]
+name = "spatial_trees"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+slotmap = "1.0.6"
+ahash = "0.7.6"
+
+[dev-dependencies]
+bevy = "0.6.1"
+bevy_config_cam = "0.2.0"
+fastrand = "*"
+
+[[example]]
+name = "quad_tree"
+path = "examples/quad_tree.rs"
+[[example]]
+name = "oct_tree"
+path = "examples/oct_tree.rs"
+[[example]]
+name = "planet_tree"
+path = "examples/planet_tree.rs"
