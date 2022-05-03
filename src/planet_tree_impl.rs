@@ -1,3 +1,5 @@
+use ahash::AHashMap as HashMap;
+
 use crate::{
     node_traits::*,
     tree_traits::*,
@@ -214,6 +216,72 @@ impl TreeNeighbourBehaviour<2> for PlanetTree {
 
         Some((node_key, neighbor_descents))
     }
+
+    fn update_neighbor_sizes(
+        &mut self,
+        node_key: NodeKey,
+        visited_nodes: &mut HashMap<NodeKey, NeighborSizeEvent>,
+    ) {
+        let mut neighbor_sizes = vec![];
+        let (node_size, node_dir) = {
+            let node = self.get_node_unchecked(node_key);
+            (node.size(), node.direction())
+        };
+
+        for direction in all_neighbor_directions::<2>() {
+            let mut opposite_dir = direction;
+            opposite_dir.iter_mut().for_each(|e| *e *= -1);
+                                    
+            for neighbour_key in self.get_neighbors(node_key, direction) {
+                let (neighbour_size, neighbour_dir) = {
+                    let node = self.get_node_unchecked(neighbour_key);
+                    (node.size(), node.direction())
+                };
+
+                let neighbour_opposite_dir = map_from_dir_to_dir(node_dir, neighbour_dir, opposite_dir);                                
+                if self.update_neighbor_size(node_key, neighbour_key, node_size, neighbour_opposite_dir)
+                    == NeighborSizeEvent::ChangedSize
+                {
+                    visited_nodes
+                        .entry(neighbour_key)
+                        .or_insert(NeighborSizeEvent::ChangedSize);
+                }
+
+                if neighbour_size < node_size {
+                    neighbor_sizes.push((direction, node_size, vec![0.0; 1]));
+                } else {
+                    neighbor_sizes.push((direction, neighbour_size, self.get_neighbor_offsets(node_key, neighbour_key, direction)));
+                }
+            }
+        }
+
+        let child_node = self.get_mut_node_unchecked(node_key);                 
+        for (dir, size, offsets) in neighbor_sizes.iter() {
+            let index = neighbor_index(*dir).unwrap();
+            child_node.neighbor_sizes_mut()[index] = *size;
+            let num_offsets = offsets.len();
+            for (i, offset) in offsets.iter().enumerate() {
+                let offset_index = index*num_offsets + i;
+                child_node.neighbor_offsets_mut()[offset_index] = *offset;
+            }            
+        }
+        visited_nodes.insert(node_key, NeighborSizeEvent::New);
+    }
+
+    fn get_neighbor_offsets(&self, node_key: NodeKey, neighbour_key: NodeKey, direction: [i32; 2]) -> Vec<f32> {
+        let node = self.get_node_unchecked(node_key);
+        let node_pos = node.pos();
+        let neighbour = self.get_node_unchecked(neighbour_key);
+        let neighbour_pos = map_from_dir_to_dir_float(neighbour.direction(), node.direction(), neighbour.pos());       
+        
+        direction.iter().zip(node_pos.iter()).zip(neighbour_pos.iter()).filter_map(|((dir, pos), neigh_pos)| {
+            if *dir == 0 {
+                Some(pos - neigh_pos)
+            } else {
+                None
+            }
+        }).collect()        
+    }
 }
 
 
@@ -226,9 +294,21 @@ pub enum Direction {
     YPos = 3,
     ZNeg = 4,
     ZPos = 5,
-    None = -1,
+    None = 6,
 }
-
+impl From<usize> for Direction {
+    fn from(v: usize) -> Self {
+        match v {
+            0 => Direction::XNeg,
+            1 => Direction::XPos,
+            2 => Direction::YNeg,
+            3 => Direction::YPos,
+            4 => Direction::ZNeg,
+            5 => Direction::ZPos,
+            _ => Direction::None, 
+        }
+    }
+}
 impl From<Direction> for [f32; 3] {
     fn from(v: Direction) -> Self {
         match v {
@@ -290,62 +370,135 @@ pub fn map_from_dir_and_local_pos(dir: Direction, pos: [f32; 2], mut world_pos: 
 
 /// Maps a neighbour direction from a face of the planet tree to the neighboring face and gives a transformation of neighbor descent directions.
 fn map_to_neighbor(from_dir: Direction, dir: [i32; 2]) -> (Direction, NeighborTransform) {
-    match from_dir {
+    let to_dir = match from_dir {
         Direction::XPos => match dir {
-            [-1, _] => (Direction::YNeg, NeighborTransform::None),
-            [1, _] => (Direction::YPos, NeighborTransform::Mirror { axis: 0 }),
-            [_, -1] => (
-                Direction::ZNeg,
-                NeighborTransform::RotateMirror {
-                    clockwise: true,
-                    axis: 1,
-                },
-            ),
-            [_, 1] => (Direction::ZPos, NeighborTransform::Rotate { clockwise: false }),
-            _ => (Direction::None, NeighborTransform::None),
+            [-1, _] => Direction::YNeg,
+            [1, _] => Direction::YPos,
+            [_, -1] => Direction::ZNeg,
+            [_, 1] => Direction::ZPos,
+            _ => Direction::None,
         },
         Direction::XNeg => match dir {
-            [-1, _] => (Direction::YNeg, NeighborTransform::Mirror { axis: 0 }),
-            [1, _] => (Direction::YPos, NeighborTransform::None),
-            [_, -1] => (Direction::ZNeg, NeighborTransform::Rotate { clockwise: false }),
-            [_, 1] => (Direction::ZPos, NeighborTransform::RotateMirror { clockwise: true, axis: 1 }),
-            _ => (Direction::None, NeighborTransform::None),
+            [-1, _] => Direction::YNeg,
+            [1, _] => Direction::YPos,
+            [_, -1] => Direction::ZNeg,
+            [_, 1] => Direction::ZPos,
+            _ => Direction::None,
         },
         Direction::YPos => match dir {
-            [-1, _] => (Direction::XNeg, NeighborTransform::None),
-            [1, _] => (Direction::XPos, NeighborTransform::Mirror { axis: 0 }),
-            [_, -1] => (Direction::ZNeg, NeighborTransform::None),
-            [_, 1] => (Direction::ZPos, NeighborTransform::Mirror { axis: 1 }),
-            _ => (Direction::None, NeighborTransform::None),
+            [-1, _] => Direction::XNeg,
+            [1, _] => Direction::XPos,
+            [_, -1] => Direction::ZNeg,
+            [_, 1] => Direction::ZPos,
+            _ => Direction::None,
         },
         Direction::YNeg => match dir {
-            [-1, _] => (Direction::XNeg, NeighborTransform::Mirror { axis: 0 }),
-            [1, _] => (Direction::XPos, NeighborTransform::None),
-            [_, -1] => (Direction::ZNeg, NeighborTransform::Mirror { axis: 1 }),
-            [_, 1] => (Direction::ZPos, NeighborTransform::None),
-            _ => (Direction::None, NeighborTransform::None),
+            [-1, _] => Direction::XNeg,
+            [1, _] => Direction::XPos,
+            [_, -1] => Direction::ZNeg,
+            [_, 1] => Direction::ZPos,
+            _ => Direction::None,
         },
         Direction::ZPos => match dir {
-            [-1, _] => (Direction::XNeg, NeighborTransform::RotateMirror { clockwise: true, axis: 1 }),
-            [1, _] => (Direction::XPos, NeighborTransform::Rotate { clockwise: true }),
-            [_, -1] => (Direction::YNeg, NeighborTransform::None),
-            [_, 1] => (Direction::YPos, NeighborTransform::Mirror { axis: 1 }),
-            _ => (Direction::None, NeighborTransform::None),
+            [-1, _] => Direction::XNeg,
+            [1, _] => Direction::XPos,
+            [_, -1] => Direction::YNeg,
+            [_, 1] => Direction::YPos,
+            _ => Direction::None,
         },
         Direction::ZNeg => match dir {
-            [-1, _] => (Direction::XNeg, NeighborTransform::Rotate { clockwise: true }),
-            [1, _] => (Direction::XPos, NeighborTransform::RotateMirror { clockwise: true, axis: 1 }),
-            [_, -1] => (Direction::YNeg, NeighborTransform::Mirror { axis: 1 }),
-            [_, 1] => (Direction::YPos, NeighborTransform::None),
-            _ => (Direction::None, NeighborTransform::None),
+            [-1, _] => Direction::XNeg,
+            [1, _] => Direction::XPos,
+            [_, -1] => Direction::YNeg,
+            [_, 1] => Direction::YPos,
+            _ => Direction::None,
         },
-        Direction::None => (Direction::None, NeighborTransform::None),
+        Direction::None => Direction::None,
+    };
+    (to_dir, transform_from_dir_to_dir(from_dir, to_dir))
+}
+
+pub fn map_neighbor_index(from_dir: Direction, to_dir: Direction, index: usize) -> usize {
+    let dir = neighbor_dir_from_index::<2>(index);
+    let new_dir = map_from_dir_to_dir(from_dir, to_dir, dir);
+    neighbor_index(new_dir).unwrap()
+}
+
+fn map_from_dir_to_dir(from_dir: Direction, to_dir: Direction, dir: [i32; 2]) -> [i32; 2] {
+    if from_dir != to_dir {        
+        match transform_from_dir_to_dir(from_dir, to_dir) {
+            NeighborTransform::Mirror { axis } => mirror(axis, dir),
+            NeighborTransform::Rotate { clockwise } => simple_rotate(clockwise, dir),
+            NeighborTransform::RotateMirror { clockwise, axis } => mirror(axis, simple_rotate(clockwise, dir)), 
+            NeighborTransform::None => dir,
+        }
+    } else {
+        dir
+    }
+}
+
+fn map_from_dir_to_dir_float(from_dir: Direction, to_dir: Direction, dir: [f32; 2]) -> [f32; 2] {
+    if from_dir != to_dir {        
+        match transform_from_dir_to_dir(from_dir, to_dir) {
+            NeighborTransform::Mirror { axis } => mirror_float(axis, dir),
+            NeighborTransform::Rotate { clockwise } => simple_rotate_float(clockwise, dir),
+            NeighborTransform::RotateMirror { clockwise, axis } => mirror_float(axis, simple_rotate_float(clockwise, dir)), 
+            NeighborTransform::None => dir,
+        }
+    } else {
+        dir
+    }   
+}
+
+fn transform_from_dir_to_dir(from_dir: Direction, to_dir: Direction) -> NeighborTransform {
+    match from_dir {
+        Direction::XPos => match to_dir {            
+            Direction::XNeg => NeighborTransform::Mirror { axis: 0 },
+            Direction::YPos => NeighborTransform::Mirror { axis: 0 },
+            Direction::ZNeg => NeighborTransform::RotateMirror { clockwise: true, axis: 1},
+            Direction::ZPos => NeighborTransform::Rotate { clockwise: false },
+            _ => NeighborTransform::None,
+        },
+        Direction::XNeg => match to_dir {
+            Direction::XPos => NeighborTransform::Mirror { axis: 0 },
+            Direction::YNeg => NeighborTransform::Mirror { axis: 0 },            
+            Direction::ZNeg => NeighborTransform::Rotate { clockwise: false },
+            Direction::ZPos => NeighborTransform::RotateMirror { clockwise: true, axis: 1 },
+            _ => NeighborTransform::None,
+        },
+        Direction::YPos => match to_dir {            
+            Direction::XPos => NeighborTransform::Mirror { axis: 0 },            
+            Direction::YNeg => NeighborTransform::Mirror { axis: 1 },
+            Direction::ZPos => NeighborTransform::Mirror { axis: 1 },
+            _ => NeighborTransform::None,
+        },
+        Direction::YNeg => match to_dir {
+            Direction::XNeg => NeighborTransform::Mirror { axis: 0 },
+            Direction::YPos => NeighborTransform::Mirror { axis: 1 },            
+            Direction::ZNeg => NeighborTransform::Mirror { axis: 1 },            
+            _ => NeighborTransform::None,
+        },
+        Direction::ZPos => match to_dir {
+            Direction::XNeg => NeighborTransform::RotateMirror { clockwise: true, axis: 1 },
+            Direction::XPos => NeighborTransform::Rotate { clockwise: true },            
+            Direction::YPos => NeighborTransform::Mirror { axis: 1 },
+            Direction::ZNeg => NeighborTransform::Mirror { axis: 1 },
+            _ => NeighborTransform::None,
+        },
+        Direction::ZNeg => match to_dir {
+            Direction::XNeg => NeighborTransform::Rotate { clockwise: true },
+            Direction::XPos => NeighborTransform::RotateMirror { clockwise: true, axis: 1 },
+            Direction::YNeg => NeighborTransform::Mirror { axis: 1 },            
+            Direction::ZPos => NeighborTransform::Mirror { axis: 1 },
+            _ => NeighborTransform::None,
+        },
+        Direction::None => NeighborTransform::None,
     }
 }
 
 //Simple transforms for neighbor descent
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-enum NeighborTransform {
+pub enum NeighborTransform {
     Mirror { axis: usize },
     Rotate { clockwise: bool },
     RotateMirror { clockwise: bool, axis: usize },
@@ -353,21 +506,30 @@ enum NeighborTransform {
 }
 
 //Rotates by +-90deg rotation 
-fn simple_rotate(clockwise: bool, coord: [i32; 2]) -> [i32; 2] {
-    let mut new_coord = coord;
-
+fn simple_rotate(clockwise: bool, mut coord: [i32; 2]) -> [i32; 2] {    
     if clockwise {
-        new_coord[0] *= -1;
-        new_coord = [new_coord[1], new_coord[0]];
+        coord[0] *= -1;        
     } else {
-        new_coord[1] *= -1;
-        new_coord = [new_coord[1], new_coord[0]];
+        coord[1] *= -1;
     }    
-
-    new_coord
+    [coord[1], coord[0]]
 }
 
 fn mirror(index: usize, mut coord: [i32; 2]) -> [i32; 2] {
     coord[index] *= -1;
+    coord
+}
+
+fn simple_rotate_float(clockwise: bool, mut coord: [f32; 2]) -> [f32; 2] {    
+    if clockwise {
+        coord[0] *= -1.0;
+    } else {
+        coord[1] *= -1.0;
+    }
+    [coord[1], coord[0]]
+}
+
+fn mirror_float(index: usize, mut coord: [f32; 2]) -> [f32; 2] {
+    coord[index] *= -1.0;
     coord
 }

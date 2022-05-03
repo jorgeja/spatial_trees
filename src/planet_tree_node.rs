@@ -9,6 +9,7 @@ pub struct PlanetTreeNode {
     size: f32,
     pos: [f32; 2],
     neighbor_sizes: [f32; 4],
+    neighbor_offsets: [f32; 4],
     direction: Direction,
     world_pos: [f32; 3],
     parent: Option<NodeKey>,
@@ -21,6 +22,7 @@ impl PlanetTreeNode {
             size,
             pos,
             neighbor_sizes: [-1.0; 4],
+            neighbor_offsets: [0.0; 4],
             direction,
             world_pos,
             parent: None,
@@ -47,6 +49,7 @@ impl Boundary<2> for PlanetTreeNode {
             size,
             pos,
             neighbor_sizes: [-1.0; 4],
+            neighbor_offsets: [0.0; 4],
             direction: Direction::None,
             world_pos: [0.0, 0.0, 0.0],
             parent: None,
@@ -94,7 +97,16 @@ impl ChildBehaviour<2> for PlanetTreeNode {
 }
 
 impl NeighborBehaviour<2> for PlanetTreeNode {
-    fn neighbor_sizes(&mut self) -> &mut [f32] {
+    fn neighbor_sizes_mut(&mut self) -> &mut [f32] {
         self.neighbor_sizes.as_mut_slice()
+    }
+    fn neighbor_offsets_mut(&mut self) -> &mut [f32] {
+        self.neighbor_offsets.as_mut_slice()
+    }
+    fn neighbor_sizes(&self) -> &[f32] {
+        self.neighbor_sizes.as_slice()
+    }
+    fn neighbor_offsets(&self) -> &[f32] {
+        self.neighbor_offsets.as_slice()
     }
 }

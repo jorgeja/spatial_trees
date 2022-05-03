@@ -95,21 +95,28 @@ pub fn child_positions_in_direction<const D: usize>(direction: [i32; D]) -> Vec<
     check_dirs
 }
 
-pub fn all_neighbor_directions<const D: usize>() -> impl Iterator<Item = [i32; D]> + 'static {
+pub fn all_neighbor_directions<const D: usize>() -> impl Iterator<Item = [i32; D]> + 'static {    
     (0..D * 2).map(|i| {
-        let v = i % 2;
-        let v = if v == 0 { -1 } else { 1 };
-        let mut out = [0; D];
-        out[i % D] = v;
-        out
+        neighbor_dir_from_index(i)
     })
+}
+
+pub fn neighbor_dir_from_index<const D: usize>(index: usize) -> [i32; D] {
+    let v = index % 2;
+    let v = if v == 0 { -1 } else { 1 };
+    let mut out = [0; D];
+    out[index / 2] = v;
+    out
 }
 
 pub trait NeighborBehaviour<const D: usize>
 where
     Self: Boundary<D>,
 {
-    fn neighbor_sizes(&mut self) -> &mut [f32];
+    fn neighbor_sizes_mut(&mut self) -> &mut [f32];
+    fn neighbor_offsets_mut(&mut self) -> &mut [f32];
+    fn neighbor_sizes(&self) -> &[f32];
+    fn neighbor_offsets(&self) -> &[f32];
 }
 
 pub trait Boundary<const D: usize> {

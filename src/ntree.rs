@@ -33,7 +33,7 @@ where
 
 impl<T, const D: usize> TreeBehaviour<D> for NTree<T, D>
 where
-    T: ChildBehaviour<D> + NeighborBehaviour<D> + Boundary<D>,
+    T: ChildBehaviour<D> + NeighborBehaviour<D> + Boundary<D> + std::fmt::Debug,
 {
     fn min_size(&self) -> f32 {
         self.min_size
@@ -46,7 +46,7 @@ where
 
 impl<T, const D: usize> NodeStorage for NTree<T, D>
 where
-    T: ChildBehaviour<D> + NeighborBehaviour<D> + Boundary<D>,
+    T: ChildBehaviour<D> + NeighborBehaviour<D> + Boundary<D> + std::fmt::Debug,
 {
     type NodeType = T;
     type NodeKeyType = NodeKey;
@@ -76,6 +76,6 @@ where
 }
 
 impl<T, const D: usize> TreeNeighbourBehaviour<D> for NTree<T, D> where
-    T: Boundary<D> + ChildBehaviour<D> + NeighborBehaviour<D>
+    T: Boundary<D> + ChildBehaviour<D> + NeighborBehaviour<D> + std::fmt::Debug
 {
 }

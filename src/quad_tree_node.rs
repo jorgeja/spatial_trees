@@ -5,6 +5,7 @@ pub struct QuadTreeNode {
     pub size: f32,
     pub pos: [f32; 2],
     pub neighbor_sizes: [f32; 4],
+    pub neighbor_offsets: [f32; 4],
     pub parent: Option<NodeKey>,
     pub children: Option<[NodeKey; 4]>,
 }
@@ -15,6 +16,7 @@ impl Boundary<2> for QuadTreeNode {
             size,
             pos,
             neighbor_sizes: [-1.0; 4],
+            neighbor_offsets: [0.0; 4],
             parent: None,
             children: None,
         }
@@ -60,7 +62,16 @@ impl ChildBehaviour<2> for QuadTreeNode {
 }
 
 impl NeighborBehaviour<2> for QuadTreeNode {
-    fn neighbor_sizes(&mut self) -> &mut [f32] {
+    fn neighbor_sizes_mut(&mut self) -> &mut [f32] {
         self.neighbor_sizes.as_mut_slice()
+    }
+    fn neighbor_offsets_mut(&mut self) -> &mut [f32] {
+        self.neighbor_offsets.as_mut_slice()
+    }
+    fn neighbor_sizes(&self) -> &[f32] {
+        self.neighbor_sizes.as_slice()
+    }
+    fn neighbor_offsets(&self) -> &[f32] {
+        self.neighbor_offsets.as_slice()
     }
 }

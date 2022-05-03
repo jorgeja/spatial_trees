@@ -3,7 +3,7 @@ use crate::{node_traits::*, NodeKey};
 use ahash::AHashMap as HashMap;
 
 pub trait NodeStorage {
-    type NodeType;
+    type NodeType: std::fmt::Debug;
     type NodeKeyType;
 
     fn get_node(&self, node_key: Self::NodeKeyType) -> Option<&Self::NodeType>;
@@ -17,7 +17,7 @@ pub trait NodeStorage {
 pub trait TreeBehaviour<const D: usize>
 where
     Self: NodeStorage<NodeKeyType = NodeKey>,
-    <Self as NodeStorage>::NodeType: Boundary<D> + ChildBehaviour<D> + NeighborBehaviour<D>,
+    <Self as NodeStorage>::NodeType: Boundary<D> + ChildBehaviour<D> + NeighborBehaviour<D> + std::fmt::Debug,
 {
     fn insert(&mut self, f: impl Fn(&Self::NodeType) -> bool) -> Vec<TreeEvent> {
         let mut events = vec![];
@@ -38,6 +38,22 @@ where
             }
         }
         events
+    }
+
+    fn contains_point(&mut self, pos: [f32; D]) -> Option<NodeKey> {
+        let mut pending_node_keys = self.root_items();        
+        while let Some(node_key) = pending_node_keys.pop() {
+            let node = self.get_node_unchecked(node_key);
+            if node.contains_point(pos) {
+                if let Some(children) = node.children() {
+                    pending_node_keys.extend(children.iter());
+                } else {
+                    return Some(node_key)
+                }
+            }
+        }
+
+        None
     }
 
     fn create_children(&mut self, parent_key: NodeKey) -> Vec<NodeKey> {
@@ -243,9 +259,9 @@ where
         for direction in all_neighbor_directions::<D>() {
             let mut opposite_dir = direction;
             opposite_dir.iter_mut().for_each(|e| *e *= -1);
-
-            for neighbour_key in self.get_neighbors(node_key, direction) {
-                if self.update_neighbor_size(neighbour_key, node_size, opposite_dir)
+                                    
+            for neighbour_key in self.get_neighbors(node_key, direction) {                                
+                if self.update_neighbor_size(node_key, neighbour_key, node_size, opposite_dir)
                     == NeighborSizeEvent::ChangedSize
                 {
                     visited_nodes
@@ -256,39 +272,67 @@ where
                 let neighbour_size = self.get_node_unchecked(neighbour_key).size();
 
                 if neighbour_size < node_size {
-                    neighbor_sizes.push((direction, node_size));
+                    neighbor_sizes.push((direction, node_size, vec![0.0; D-1]));
                 } else {
-                    neighbor_sizes.push((direction, neighbour_size));
+                    neighbor_sizes.push((direction, neighbour_size, self.get_neighbor_offsets(node_key, neighbour_key, direction)));
                 }
             }
         }
 
-        let child_node = self.get_mut_node_unchecked(node_key);
-        for (dir, size) in neighbor_sizes.iter() {
+        let child_node = self.get_mut_node_unchecked(node_key);                 
+        for (dir, size, offsets) in neighbor_sizes.iter() {
             let index = neighbor_index(*dir).unwrap();
-            child_node.neighbor_sizes()[index] = *size;
+            child_node.neighbor_sizes_mut()[index] = *size;
+            let num_offsets = offsets.len();
+            for (i, offset) in offsets.iter().enumerate() {
+                let offset_index = index*num_offsets + i;
+                child_node.neighbor_offsets_mut()[offset_index] = *offset;
+            }            
         }
         visited_nodes.insert(node_key, NeighborSizeEvent::New);
+    }
+
+    fn get_neighbor_offsets(&self, node_key: NodeKey, neighbour_key: NodeKey, direction: [i32; D]) -> Vec<f32> {
+
+        let node_pos = self.get_node_unchecked(node_key).pos();
+        let neighbour_pos = self.get_node_unchecked(neighbour_key).pos();
+
+        let mut offsets = vec![];
+        for ((dir, pos), neigh_pos) in direction.iter().zip(node_pos.iter()).zip(neighbour_pos.iter()) {
+            if *dir == 0 {
+                offsets.push(pos - neigh_pos);
+            }
+        }        
+        offsets
     }
 
     // updates the border size in the neighbor node with the correct size. Direction is the direction of the border from the neighbors point of view
     fn update_neighbor_size(
         &mut self,
+        subject_key: NodeKey,
         neighbour_key: NodeKey,
         subject_size: f32,
         direction: [i32; D],
     ) -> NeighborSizeEvent {
-        let neighbour = self.get_mut_node_unchecked(neighbour_key);
+        let offsets = self.get_neighbor_offsets(neighbour_key, subject_key, direction);
+        let neighbour = self.get_mut_node_unchecked(neighbour_key);        
+
         let neighbor_size = neighbour.size();
         if let Some(neighbor_size_index) = neighbor_index::<D>(direction) {
-            let neighbors_border_size = &mut neighbour.neighbor_sizes()[neighbor_size_index];
-
-            if *neighbors_border_size != subject_size {
+            let neighbors_border_size = neighbour.neighbor_sizes()[neighbor_size_index];
+            
+            let num_offsets = offsets.len();
+            for (i, offset) in offsets.iter().enumerate() {
+                let offset_index = neighbor_size_index*num_offsets + i;
+                neighbour.neighbor_offsets_mut()[offset_index] = *offset;
+            }
+            
+            if neighbors_border_size != subject_size {                
                 if neighbor_size < subject_size {
-                    *neighbors_border_size = subject_size;
-                    return NeighborSizeEvent::ChangedSize;
-                } else if *neighbors_border_size != neighbor_size {
-                    *neighbors_border_size = neighbor_size;
+                    neighbour.neighbor_sizes_mut()[neighbor_size_index] = subject_size;
+                    return NeighborSizeEvent::ChangedSize;                    
+                } else if neighbors_border_size != neighbor_size {
+                    neighbour.neighbor_sizes_mut()[neighbor_size_index] = neighbor_size;
                     return NeighborSizeEvent::ChangedSize;
                 }
             }
@@ -325,8 +369,14 @@ where
                 _ => {}
             }
         }
+        for (node_key, neighbor_event) in visited_nodes.iter() {
+            if *neighbor_event == NeighborSizeEvent::ChangedSize {
+                events.push(TreeEvent::NeighborSizesChanged(*node_key));
+            }
+        }
     }
 }
+
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum NeighborSizeEvent {

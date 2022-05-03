@@ -26,6 +26,7 @@ fn main() {
         .add_plugin(WireframePlugin)
         .add_startup_system(setup_camera)
         .add_startup_system(setup_material)
+        .add_startup_system(setup_axis_boxes)
         .add_system(toggle_wireframe_system)
         .add_system(check_quad_tree)
         .add_system(check_neighbors)
@@ -214,6 +215,38 @@ fn check_neighbors(
                 )
             }
         }
+    }
+}
+
+fn setup_axis_boxes(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let offset = 15.0;
+    for dir in all_neighbor_directions::<3>() {
+        let float_dirs = Vec3::from([dir[0] as f32, dir[1] as f32, dir[2] as f32]);
+        let mut vec_colors = float_dirs.to_array();
+        vec_colors.iter_mut().for_each(|v| {
+            if *v < 0.0 {
+                *v = 0.5
+            } else if *v > 0.0 {
+                *v = 1.0
+            }
+        });
+
+        let color = Color::from(vec_colors);
+        let pos = float_dirs * offset;
+
+        let mut material = StandardMaterial::from(color);
+        material.unlit = true;
+
+        commands.spawn_bundle(PbrBundle {
+            mesh: meshes.add(Mesh::from(shape::Cube { size: 1.0 })),
+            material: materials.add(material),
+            transform: Transform::from_translation(pos),
+            ..Default::default()
+        });
     }
 }
 
